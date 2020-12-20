@@ -11,6 +11,8 @@ import math
 import numpy as np
 import gym
 from gym_duckietown.envs import DuckietownEnv
+from PIL import Image
+
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--env-name', default=None)
@@ -18,16 +20,14 @@ parser.add_argument('--map-name', default='udem1')
 parser.add_argument('--no-pause', action='store_true', help="don't pause on failure")
 args = parser.parse_args()
 
-if args.env_name is None:
-    env = DuckietownEnv(
-        map_name = args.map_name,
-        domain_rand = False,
-        draw_bbox = False
-    )
-else:
-    env = gym.make(args.env_name)
+env = DuckietownEnv(
+    map_name = args.map_name,
+    domain_rand = False,
+    draw_bbox = False,
+    segment = True
+)
 
-obs = env.reset()
+obs = env.reset(segment=True)
 env.render()
 
 total_reward = 0
@@ -55,6 +55,12 @@ while True:
     
     obs, reward, done, info = env.step([speed, steering])
     total_reward += reward
+
+   
+    im = Image.fromarray(obs[0])
+    im.save('samples/%s.png' % (env.step_count))
+    im_s = Image.fromarray(obs[1])
+    im_s.save('samples/seg_%s.png' % (env.step_count))
     
     print('Steps = %s, Timestep Reward=%.3f, Total Reward=%.3f' % (env.step_count, reward, total_reward))
 

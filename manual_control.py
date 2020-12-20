@@ -20,7 +20,7 @@ from gym_duckietown.wrappers import UndistortWrapper
 
 parser = argparse.ArgumentParser()
 parser.add_argument('--env-name', default=None)
-parser.add_argument('--map-name', default='udem1')
+parser.add_argument('--map-name', default='test')
 parser.add_argument('--distortion', default=False, action='store_true')
 parser.add_argument('--draw-curve', action='store_true', help='draw the lane following curve')
 parser.add_argument('--draw-bbox', action='store_true', help='draw collision detection bounding boxes')
@@ -38,11 +38,12 @@ if args.env_name and args.env_name.find('Duckietown') != -1:
         domain_rand = args.domain_rand,
         frame_skip = args.frame_skip,
         distortion = args.distortion,
+        segment=True
     )
 else:
     env = gym.make(args.env_name)
 
-env.reset()
+env.reset(segment=True)
 env.render()
 
 @env.unwrapped.window.event

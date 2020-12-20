@@ -361,8 +361,8 @@ class TrafficLightObj(WorldObj):
         WorldObj.__init__(self, obj, domain_rand, safety_radius_mult)
 
         self.texs = [
-            load_texture(get_file_path("textures", "trafficlight_card0", "jpg")),
-            load_texture(get_file_path("textures", "trafficlight_card1", "jpg"))
+            load_texture(get_file_path("textures_semantic", "trafficlight_card0", "jpg")),
+            load_texture(get_file_path("textures_semantic", "trafficlight_card1", "jpg"))
         ]
         self.time = 0
 

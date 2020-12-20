@@ -23,13 +23,17 @@ class Texture(object):
     tex_cache = {}
 
     @classmethod
-    def get(self, tex_name, rng=None):
+    def get(self, tex_name, rng=None, segment = False):
         paths = self.tex_paths.get(tex_name, [])
+        
+        texture_folder = 'textures'
+        if segment:
+            texture_folder = 'textures_semantic'
 
         # Get an inventory of the existing texture files
         if len(paths) == 0:
             for i in range(1, 10):
-                path = get_file_path('textures', '%s_%d' % (tex_name, i), 'png')
+                path = get_file_path(texture_folder, '%s_%d' % (tex_name, i), 'png')
                 if not os.path.exists(path):
                     break
                 paths.append(path)

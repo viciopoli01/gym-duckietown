@@ -13,23 +13,23 @@ class ObjMesh(object):
     cache = {}
 
     @classmethod
-    def get(self, mesh_name):
+    def get(self, mesh_name, segment):
         """
         Load a mesh or used a cached version
         """
 
         # Assemble the absolute path to the mesh file
-        file_path = get_file_path('meshes', mesh_name, 'obj')
+        file_path = get_file_path('meshes_semantic', mesh_name, 'obj') if segment else get_file_path('meshes', mesh_name, 'obj')
 
         if file_path in self.cache:
             return self.cache[file_path]
 
-        mesh = ObjMesh(file_path)
+        mesh = ObjMesh(file_path, segment)
         self.cache[file_path] = mesh
 
         return mesh
 
-    def __init__(self, file_path):
+    def __init__(self, file_path, segment):
         """
         Load an OBJ model file
 
@@ -46,6 +46,7 @@ class ObjMesh(object):
         # vn x y z
         # usemtl mtl_name
         # f v0/t0/n0 v1/t1/n1 v2/t2/n2
+        self.segment = segment
 
         logger.debug('loading mesh "%s"' % os.path.basename(file_path))
 
@@ -222,7 +223,7 @@ class ObjMesh(object):
 
         # Determine the default texture path for the default material
         tex_name = file_name.split('.')[0]
-        tex_path = get_file_path('textures', tex_name, 'png')
+        tex_path = get_file_path('textures_semantic', tex_name, 'png') if self.segment else get_file_path('textures', tex_name, 'png')
         if os.path.exists(tex_path):
             default_mtl['map_Kd'] = tex_path
 

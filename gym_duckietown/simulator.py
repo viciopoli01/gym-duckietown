@@ -38,12 +38,15 @@ DEFAULT_CAMERA_HEIGHT = 480
 
 # Blue sky horizon color
 BLUE_SKY_COLOR = np.array([0.45, 0.82, 1])
+BLUE_SKY_COLOR_SEGMENT = np.array([0.0, 0.0, 0.0])
 
 # Color meant to approximate interior walls
 WALL_COLOR = np.array([0.64, 0.71, 0.28])
+WALL_COLOR_SEGMENT = np.array([0.0, 0.0, 0.0])
 
 # Ground/floor color
 GROUND_COLOR = np.array([0.15, 0.15, 0.15])
+GROUND_COLOR_SEGMENT = np.array([0.0, 0.0, 0.0])
 
 # Angle at which the camera is pitched downwards
 CAMERA_ANGLE = 15
@@ -158,6 +161,7 @@ class Simulator(gym.Env):
             seed=None,
             distortion=False,
             randomize_maps_on_reset=False,
+            segment=False
     ):
         """
 
@@ -177,7 +181,10 @@ class Simulator(gym.Env):
         :param seed:
         :param distortion: If true, distorts the image with fish-eye approximation
         :param randomize_maps_on_reset: If true, randomizes the map on reset (Slows down training)
+        :param segment: If true show when rendering the segment annotation
         """
+        self.segment = segment
+
         # first initialize the RNG
         self.seed_value = seed
         self.seed(seed=self.seed_value)
@@ -306,7 +313,7 @@ class Simulator(gym.Env):
             self.map_names = [mapfile.replace('.yaml', '') for mapfile in self.map_names]
 
         # Initialize the state
-        self.reset()
+        self.reset(segment=self.segment)
 
         self.last_action = np.array([0, 0])
         self.wheelVels = np.array([0, 0])
@@ -340,7 +347,7 @@ class Simulator(gym.Env):
         ]
         self.ground_vlist = pyglet.graphics.vertex_list(4, ('v3f', verts))
 
-    def reset(self):
+    def reset(self, segment=False):
         """
         Reset the simulation at the start of a new episode
         This also randomizes many environment parameters (domain randomization)
@@ -385,8 +392,14 @@ class Simulator(gym.Env):
 
         ambient = self._perturb([0.50, 0.50, 0.50], 0.3)
         # XXX: diffuse is not used?
-        diffuse = self._perturb([0.70, 0.70, 0.70], 0.3)
+        diffuse = self._perturb([0.0, 0.0, 0.0], 0.3)#self._perturb([0.70, 0.70, 0.70], 0.3)
         from pyglet import gl
+
+        # if segment:
+        #     gl.glDisable(gl.GL_LIGHT0)
+        #     gl.glDisable(gl.GL_LIGHTING)
+        #     gl.glDisable(gl.GL_COLOR_MATERIAL)
+        # else:
         gl.glLightfv(gl.GL_LIGHT0, gl.GL_POSITION, (gl.GLfloat * 4)(*light_pos))
         gl.glLightfv(gl.GL_LIGHT0, gl.GL_AMBIENT, (gl.GLfloat * 4)(*ambient))
         gl.glLightfv(gl.GL_LIGHT0, gl.GL_DIFFUSE, (gl.GLfloat * 4)(0.5, 0.5, 0.5, 1.0))
@@ -430,7 +443,8 @@ class Simulator(gym.Env):
         for tile in self.grid:
             rng = self.np_random if self.domain_rand else None
             # Randomize the tile texture
-            tile['texture'] = Texture.get(tile['kind'], rng=rng)
+            tile['texture_segment'] = Texture.get(tile['kind'], rng=rng, segment=True)
+            tile['texture'] = Texture.get(tile['kind'], rng=rng, segment=False)
 
             # Random tile color multiplier
             tile['color'] = self._perturb([1, 1, 1], 0.2)
@@ -599,7 +613,8 @@ class Simulator(gym.Env):
                     tile['curves'] = self._get_curve(i, j)
                     self.drivable_tiles.append(tile)
 
-        self.mesh = ObjMesh.get('duckiebot')
+        self.mesh = ObjMesh.get('duckiebot',segment=False)
+        self.mesh_segment = ObjMesh.get('duckiebot',segment=True)
         self._load_objects(map_data)
 
         # Get the starting tile from the map, if specified
@@ -611,6 +626,7 @@ class Simulator(gym.Env):
     def _load_objects(self, map_data):
         # Create the objects array
         self.objects = []
+        self.objects_segment = []
 
         # The corners for every object, regardless if collidable or not
         self.object_corners = []
@@ -630,72 +646,76 @@ class Simulator(gym.Env):
         self.collidable_safety_radii = []
 
         # For each object
-        for obj_idx, desc in enumerate(map_data.get('objects', [])):
-            kind = desc['kind']
+        for segmentation in [True,False]:
+            for obj_idx, desc in enumerate(map_data.get('objects', [])):
+                kind = desc['kind']
 
-            pos = desc['pos']
-            x, z = pos[0:2]
-            y = pos[2] if len(pos) == 3 else 0.0
+                pos = desc['pos']
+                x, z = pos[0:2]
+                y = pos[2] if len(pos) == 3 else 0.0
 
-            rotate = desc['rotate']
-            optional = desc.get('optional', False)
+                rotate = desc['rotate']
+                optional = desc.get('optional', False)
 
-            pos = self.road_tile_size * np.array((x, y, z))
+                pos = self.road_tile_size * np.array((x, y, z))
 
-            # Load the mesh
-            mesh = ObjMesh.get(kind)
+                # Load the mesh
+                mesh = ObjMesh.get(kind,segment=segmentation)
 
-            if 'height' in desc:
-                scale = desc['height'] / mesh.max_coords[1]
-            else:
-                scale = desc['scale']
-            assert not ('height' in desc and 'scale' in desc), "cannot specify both height and scale"
-
-            static = desc.get('static', True)
-
-            obj_desc = {
-                'kind': kind,
-                'mesh': mesh,
-                'pos': pos,
-                'scale': scale,
-                'y_rot': rotate,
-                'optional': optional,
-                'static': static,
-            }
-
-            # obj = None
-            if static:
-                if kind == "trafficlight":
-                    obj = TrafficLightObj(obj_desc, self.domain_rand, SAFETY_RAD_MULT)
+                if 'height' in desc:
+                    scale = desc['height'] / mesh.max_coords[1]
                 else:
-                    obj = WorldObj(obj_desc, self.domain_rand, SAFETY_RAD_MULT)
-            else:
-                if kind == "duckiebot":
-                    obj = DuckiebotObj(obj_desc, self.domain_rand, SAFETY_RAD_MULT, WHEEL_DIST,
-                                       ROBOT_WIDTH, ROBOT_LENGTH)
-                elif kind == "duckie":
-                    obj = DuckieObj(obj_desc, self.domain_rand, SAFETY_RAD_MULT, self.road_tile_size)
+                    scale = desc['scale']
+                assert not ('height' in desc and 'scale' in desc), "cannot specify both height and scale"
+
+                static = desc.get('static', True)
+
+                obj_desc = {
+                    'kind': kind,
+                    'mesh': mesh,
+                    'pos': pos,
+                    'scale': scale,
+                    'y_rot': rotate,
+                    'optional': optional,
+                    'static': static,
+                }
+
+                # obj = None
+                if static:
+                    if kind == "trafficlight":
+                        obj = TrafficLightObj(obj_desc, self.domain_rand, SAFETY_RAD_MULT)
+                    else:
+                        obj = WorldObj(obj_desc, self.domain_rand, SAFETY_RAD_MULT)
                 else:
-                    msg = 'I do not know what object this is: %s' % kind
-                    raise Exception(msg)
+                    if kind == "duckiebot":
+                        obj = DuckiebotObj(obj_desc, self.domain_rand, SAFETY_RAD_MULT, WHEEL_DIST,
+                                        ROBOT_WIDTH, ROBOT_LENGTH)
+                    elif kind == "duckie":
+                        obj = DuckieObj(obj_desc, self.domain_rand, SAFETY_RAD_MULT, self.road_tile_size)
+                    else:
+                        msg = 'I do not know what object this is: %s' % kind
+                        raise Exception(msg)
+                
+                if segmentation:
+                    self.objects_segment.append(obj)
+                else:
+                    self.objects.append(obj)
 
-            self.objects.append(obj)
+                # Compute collision detection information
 
-            # Compute collision detection information
+                # angle = rotate * (math.pi / 180)
 
-            # angle = rotate * (math.pi / 180)
+                # Find drivable tiles object could intersect with
+                possible_tiles = find_candidate_tiles(obj.obj_corners, self.road_tile_size)
 
-            # Find drivable tiles object could intersect with
-            possible_tiles = find_candidate_tiles(obj.obj_corners, self.road_tile_size)
-
-            # If the object intersects with a drivable tile
-            if static and kind != "trafficlight" and self._collidable_object(
-                    obj.obj_corners, obj.obj_norm, possible_tiles
-            ):
-                self.collidable_centers.append(pos)
-                self.collidable_corners.append(obj.obj_corners.T)
-                self.collidable_norms.append(obj.obj_norm)
-                self.collidable_safety_radii.append(obj.safety_radius)
+                # If the object intersects with a drivable tile
+                if static and kind != "trafficlight" and self._collidable_object(
+                        obj.obj_corners, obj.obj_norm, possible_tiles
+                ):
+                    self.collidable_centers.append(pos)
+                    self.collidable_corners.append(obj.obj_corners.T)
+                    self.collidable_norms.append(obj.obj_norm)
+                    self.collidable_safety_radii.append(obj.safety_radius)
 
         # If there are collidable objects
         if len(self.collidable_corners) > 0:
@@ -752,7 +772,7 @@ class Simulator(gym.Env):
             noise = self.np_random.uniform(low=1 - scale, high=1 + scale, size=val.shape)
         else:
             noise = self.np_random.uniform(low=1 - scale, high=1 + scale)
-
+        
         return val * noise
 
     def _collidable_object(self, obj_corners, obj_norm, possible_tiles):
@@ -1230,17 +1250,18 @@ class Simulator(gym.Env):
         self.speed = np.linalg.norm(delta_pos) / delta_time
 
         # Update world objects
-        for obj in self.objects:
-            if not obj.static and obj.kind == "duckiebot":
-                obj_i, obj_j = self.get_grid_coords(obj.pos)
-                same_tile_obj = [
-                    o for o in self.objects if
-                    tuple(self.get_grid_coords(o.pos)) == (obj_i, obj_j) and o != obj
-                ]
+        for objs in [self.objects_segment, self.objects]:
+            for obj in objs:
+                if not obj.static and obj.kind == "duckiebot":
+                    obj_i, obj_j = self.get_grid_coords(obj.pos)
+                    same_tile_obj = [
+                        o for o in self.objects if
+                        tuple(self.get_grid_coords(o.pos)) == (obj_i, obj_j) and o != obj
+                    ]
 
-                obj.step(delta_time, self.closest_curve_point, same_tile_obj)
-            else:
-                obj.step(delta_time)
+                    obj.step(delta_time, self.closest_curve_point, same_tile_obj)
+                else:
+                    obj.step(delta_time)
 
     def get_agent_info(self):
         info = {}
@@ -1373,7 +1394,7 @@ class Simulator(gym.Env):
             done_code = 'in-progress'
         return DoneRewardInfo(done=done, done_why=msg, reward=reward, done_code=done_code)
 
-    def _render_img(self, width, height, multi_fbo, final_fbo, img_array, top_down=True):
+    def _render_img(self, width, height, multi_fbo, final_fbo, img_array, top_down=True, segment=False):
         """
         Render an image of the environment into a frame buffer
         Produce a numpy RGB array image as output
@@ -1382,12 +1403,23 @@ class Simulator(gym.Env):
         if not self.graphics:
             return
 
+
         # Switch to the default context
         # This is necessary on Linux nvidia drivers
         # pyglet.gl._shadow_window.switch_to()
         self.shadow_window.switch_to()
 
         from pyglet import gl
+
+        if segment:
+            gl.glDisable(gl.GL_LIGHT0)
+            gl.glDisable(gl.GL_LIGHTING)
+            gl.glDisable(gl.GL_COLOR_MATERIAL)
+        else:
+            gl.glEnable(gl.GL_LIGHT0)
+            gl.glEnable(gl.GL_LIGHTING)
+            gl.glEnable(gl.GL_COLOR_MATERIAL)
+
         # Bind the multisampled frame buffer
         gl.glEnable(gl.GL_MULTISAMPLE)
         gl.glBindFramebuffer(gl.GL_FRAMEBUFFER, multi_fbo)
@@ -1395,7 +1427,7 @@ class Simulator(gym.Env):
 
         # Clear the color and depth buffers
 
-        c0, c1, c2 = self.horizon_color
+        c0, c1, c2 = BLUE_SKY_COLOR_SEGMENT if segment else self.horizon_color
         gl.glClearColor(c0, c1, c2, 1.0)
         gl.glClearDepth(1.0)
         gl.glClear(gl.GL_COLOR_BUFFER_BIT | gl.GL_DEPTH_BUFFER_BIT)
@@ -1462,7 +1494,7 @@ class Simulator(gym.Env):
 
         # Draw the ground quad
         gl.glDisable(gl.GL_TEXTURE_2D)
-        gl.glColor3f(*self.ground_color)
+        gl.glColor3f(*self.ground_color if not segment else GROUND_COLOR_SEGMENT)
         gl.glPushMatrix()
         gl.glScalef(50, 1, 50)
         self.ground_vlist.draw(gl.GL_QUADS)
@@ -1488,7 +1520,7 @@ class Simulator(gym.Env):
                 # kind = tile['kind']
                 angle = tile['angle']
                 color = tile['color']
-                texture = tile['texture']
+                texture = tile['texture_segment'] if segment else tile['texture']
 
                 gl.glColor3f(*color)
 
@@ -1522,8 +1554,12 @@ class Simulator(gym.Env):
                         bezier_draw(pt, n=20)
 
         # For each object
-        for idx, obj in enumerate(self.objects):
-            obj.render(self.draw_bbox)
+        if segment:
+            for idx, obj in enumerate(self.objects_segment):
+                obj.render(self.draw_bbox)
+        else:
+            for idx, obj in enumerate(self.objects):
+                obj.render(self.draw_bbox)
 
         # Draw the agent's own bounding box
         if self.draw_bbox:
@@ -1542,7 +1578,11 @@ class Simulator(gym.Env):
             gl.glScalef(1, 1, 1)
             gl.glRotatef(self.cur_angle * 180 / np.pi, 0, 1, 0)
             # glColor3f(*self.color)
-            self.mesh.render()
+            if segment:
+                self.mesh_segment.render()
+            else:
+                self.mesh.render()
+
             gl.glPopMatrix()
 
         # Resolve the multisampled frame buffer into the final frame buffer
@@ -1594,10 +1634,22 @@ class Simulator(gym.Env):
                 top_down=False
         )
 
+        if self.segment:
+            observation_seg = self._render_img(
+                self.camera_width,
+                self.camera_height,
+                self.multi_fbo,
+                self.final_fbo,
+                self.img_array,
+                top_down=False,
+                segment=True
+            )
+            return [observation, observation_seg]
+
         # self.undistort - for UndistortWrapper
         if self.distortion and not self.undistort:
             observation = self.camera_model.distort(observation)
-
+        
         return observation
 
     def render(self, mode='human', close=False):
@@ -1620,10 +1672,26 @@ class Simulator(gym.Env):
                 self.img_array_human,
                 top_down=top_down
         )
+        if self.segment:
+            img_segment = self._render_img(
+                    WINDOW_WIDTH,
+                    WINDOW_HEIGHT,
+                    self.multi_fbo_human,
+                    self.final_fbo_human,
+                    self.img_array_human,
+                    top_down=mode == 'top_down',
+                    segment=True
+            )
+
+    
 
         # self.undistort - for UndistortWrapper
         if self.distortion and not self.undistort and mode != "free_cam":
             img = self.camera_model.distort(img)
+        
+        if self.segment:
+            img = np.concatenate((img,img_segment),axis=1)
+            
 
         if mode == 'rgb_array':
             return img
@@ -1633,7 +1701,7 @@ class Simulator(gym.Env):
         if self.window is None:
             config = gl.Config(double_buffer=False)
             self.window = window.Window(
-                    width=WINDOW_WIDTH,
+                    width=WINDOW_WIDTH*2 if self.segment else WINDOW_WIDTH,
                     height=WINDOW_HEIGHT,
                     resizable=False,
                     config=config
